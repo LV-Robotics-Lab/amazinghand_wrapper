@@ -54,6 +54,10 @@ class AmazingHandController:
     def is_calibrated(self) -> bool:
         return self.mapper is not None
 
+    @property
+    def is_active(self) -> bool:
+        return self.state is HandState.ACTIVE
+
     def _load_calibration_if_present(self) -> None:
         if self.config.calibration_file.is_file():
             self.set_calibration(HandCalibration.load(self.config.calibration_file), persist=False)
