@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amazinghand-wrapper"
+version = "0.1.0"
+description = "Safety-gated, backend-neutral control wrapper for Pollen Robotics AmazingHand"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "LV Robotics Lab" }]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9", "ruff>=0.9,<1"]
+
+[project.scripts]
+amazinghand = "amazinghand_wrapper.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amazinghand_wrapper"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
