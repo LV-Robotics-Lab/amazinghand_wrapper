@@ -53,10 +53,26 @@ amazinghand calibrate \
 Calibration disables torque and records explicit open and closed raw positions.
 Do not run it unless the hand can be moved safely by an operator.
 
+### Migrate an existing Pollen calibration
+
+If the hand was already calibrated with Pollen's reference Python demo, migrate its
+device-specific `MiddlePos` values offline instead of recalibrating the mechanics:
+
+```bash
+amazinghand migrate-pollen \
+  --source AmazingHand_Demo_Both.py \
+  --variable MiddlePos_1 \
+  --output ~/.cache/amazinghand/right.json
+```
+
+Run the same command with `MiddlePos_2` for the other hand. The converter matches
+Pollen's `OpenHand`/`CloseHand` angles and rustypot's SCS0009 raw-position conversion,
+records its assumptions as provenance in the JSON, and never opens a serial port. Do
+not use the unmodified example `MiddlePos` values for a different physical hand.
+
 ## Tests
 
 ```bash
 python -m pytest -q
 ruff check .
 ```
-

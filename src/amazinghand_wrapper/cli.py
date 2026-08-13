@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .calibration import HandCalibration, load_pollen_middle_positions
 from .config import AmazingHandConfig
 from .controller import AmazingHandController
 from .lerobot_backend import LeRobotFeetechBackend
@@ -40,6 +41,34 @@ def _calibrate(args: argparse.Namespace) -> int:
         controller.disconnect()
 
 
+def _migrate_pollen(args: argparse.Namespace) -> int:
+    if args.source is not None:
+        middle_positions = load_pollen_middle_positions(args.source, args.variable)
+        source = str(args.source)
+        variable = args.variable
+    else:
+        middle_positions = tuple(args.middle_pos)
+        source = "command-line"
+        variable = None
+    calibration = HandCalibration.from_pollen_middle_positions(
+        middle_positions,
+        source=source,
+        variable=variable,
+    )
+    calibration.save(args.output)
+    print(
+        json.dumps(
+            {
+                "hardware_touched": False,
+                "output": str(args.output),
+                "schema": calibration.schema,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Safety-gated AmazingHand utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -50,6 +79,16 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--baudrate", type=int, action="append", default=[1_000_000, 250_000])
         command.add_argument("--model-number", type=int, action="append", default=[1280, 1284])
         command.set_defaults(handler=handler)
+    migrate = subparsers.add_parser(
+        "migrate-pollen",
+        help="convert a calibrated Pollen MiddlePos profile without touching hardware",
+    )
+    source = migrate.add_mutually_exclusive_group(required=True)
+    source.add_argument("--source", type=Path, help="Pollen Python demo containing MiddlePos")
+    source.add_argument("--middle-pos", type=float, nargs=8, metavar="DEGREES")
+    migrate.add_argument("--variable", default="MiddlePos")
+    migrate.add_argument("--output", type=Path, required=True)
+    migrate.set_defaults(handler=_migrate_pollen)
     return parser
 
 
@@ -60,4 +99,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

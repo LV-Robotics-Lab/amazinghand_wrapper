@@ -9,6 +9,8 @@ from amazinghand_wrapper import (
     GripperSynergyMapper,
     HandCalibration,
     HandState,
+    load_pollen_middle_positions,
+    pollen_scs0009_degrees_to_raw,
 )
 
 
@@ -113,6 +115,35 @@ def test_calibration_is_atomic_and_reloads(tmp_path: Path) -> None:
     assert HandCalibration.load(path) == calibration()
     controller = AmazingHandController(config(tmp_path), FakeBackend())
     assert controller.is_calibrated
+
+
+def test_pollen_middle_positions_migrate_without_hardware(tmp_path: Path) -> None:
+    source = tmp_path / "AmazingHand_Demo_Both.py"
+    source.write_text(
+        "MiddlePos_1 = [3, 0, -8, -13, 2, -5, -12, -5]\n"
+        "MiddlePos_2 = [3, -3, -1, -10, 5, 2, -7, 3]\n"
+    )
+    middle = load_pollen_middle_positions(source, "MiddlePos_1")
+    migrated = HandCalibration.from_pollen_middle_positions(
+        middle, source=str(source), variable="MiddlePos_1"
+    )
+    output = tmp_path / "right.json"
+    migrated.save(output)
+
+    assert migrated.open_raw["index_1"] == pollen_scs0009_degrees_to_raw(3 - 35)
+    assert migrated.closed_raw["index_1"] == pollen_scs0009_degrees_to_raw(3 + 90)
+    assert migrated.open_raw["index_2"] == pollen_scs0009_degrees_to_raw(35)
+    assert migrated.closed_raw["index_2"] == pollen_scs0009_degrees_to_raw(-90)
+    assert HandCalibration.load(output) == migrated
+
+
+def test_pollen_import_rejects_missing_or_unsafe_values(tmp_path: Path) -> None:
+    source = tmp_path / "demo.py"
+    source.write_text("MiddlePos = [1, 2]\n")
+    with pytest.raises(ValueError, match="exactly eight"):
+        load_pollen_middle_positions(source, "MiddlePos")
+    with pytest.raises(ValueError, match="outside"):
+        HandCalibration.from_pollen_middle_positions([200] * 8)
 
 
 def test_velocity_limit_is_per_second(tmp_path: Path) -> None:
