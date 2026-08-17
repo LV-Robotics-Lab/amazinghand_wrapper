@@ -63,6 +63,13 @@ class LeRobotFeetechBackend:
             normalize=False,
         )
 
+    def latch_current_position(self) -> dict[int, int]:
+        current = self.read_positions()
+        if set(current) != set(self.motor_ids):
+            raise RuntimeError("position read does not match configured AmazingHand motor IDs")
+        self.write_positions(current)
+        return dict(current)
+
     def _read_optional(self, register: str) -> dict[int, float] | None:
         bus = self._require_bus()
         try:
@@ -78,4 +85,3 @@ class LeRobotFeetechBackend:
 
     def read_loads(self) -> dict[int, float] | None:
         return self._read_optional("Present_Load")
-

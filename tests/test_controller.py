@@ -15,8 +15,16 @@ from amazinghand_wrapper import (
 
 
 class FakeBackend:
-    def __init__(self, models_by_baudrate: dict[int, dict[int, int]] | None = None) -> None:
+    def __init__(
+        self,
+        models_by_baudrate: dict[int, dict[int, int]] | None = None,
+        *,
+        fail_read_positions: bool = False,
+        fail_write_positions: bool = False,
+    ) -> None:
         self.models_by_baudrate = models_by_baudrate or {1_000_000: dict.fromkeys(range(1, 9), 1280)}
+        self.fail_read_positions = fail_read_positions
+        self.fail_write_positions = fail_write_positions
         self.connected_baudrate: int | None = None
         self.positions = {motor_id: 100 + motor_id for motor_id in range(1, 9)}
         self.temperatures = dict.fromkeys(range(1, 9), 25.0)
@@ -24,6 +32,8 @@ class FakeBackend:
         self.torque = False
         self.writes: list[dict[int, int]] = []
         self.connect_attempts: list[int] = []
+        self.read_position_calls = 0
+        self.events: list[str] = []
 
     def connect(self, port: str, baudrate: int) -> None:
         assert port
@@ -37,14 +47,29 @@ class FakeBackend:
         return self.models_by_baudrate.get(self.connected_baudrate or -1, {}).get(motor_id)
 
     def set_torque(self, enabled: bool) -> None:
+        self.events.append(f"torque:{enabled}")
         self.torque = enabled
 
     def read_positions(self) -> dict[int, int]:
+        self.events.append("read_positions")
+        self.read_position_calls += 1
+        if self.fail_read_positions:
+            raise RuntimeError("injected position read failure")
         return dict(self.positions)
 
     def write_positions(self, positions: dict[int, int]) -> None:
+        self.events.append("write_positions")
+        if self.fail_write_positions:
+            raise RuntimeError("injected goal write failure")
         self.positions = dict(positions)
         self.writes.append(dict(positions))
+
+    def latch_current_position(self) -> dict[int, int]:
+        current = self.read_positions()
+        if set(current) != set(range(1, 9)):
+            raise RuntimeError("incomplete fake position read")
+        self.write_positions(current)
+        return dict(current)
 
     def read_temperatures(self) -> dict[int, float] | None:
         return dict(self.temperatures)
@@ -107,6 +132,60 @@ def test_activation_requires_calibration(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="calibrated"):
         controller.activate()
     assert backend.torque is False
+
+
+def test_latch_reads_current_pose_and_writes_identical_goal_torque_off(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    controller = AmazingHandController(config(tmp_path), backend)
+    controller.connect()
+    measured = dict(backend.positions)
+
+    latched = controller.latch_current_position()
+
+    assert latched == measured
+    assert backend.writes == [measured]
+    assert backend.events[-2:] == ["read_positions", "write_positions"]
+    assert backend.torque is False
+    assert controller.state is HandState.CONNECTED
+
+
+def test_latch_failure_enters_fault_and_disables_torque(tmp_path: Path) -> None:
+    backend = FakeBackend(fail_write_positions=True)
+    controller = AmazingHandController(config(tmp_path), backend)
+    controller.connect()
+
+    with pytest.raises(RuntimeError, match="goal write failure"):
+        controller.latch_current_position()
+
+    assert controller.state is HandState.FAULT
+    assert controller.fault_reason == "goal latch failure: injected goal write failure"
+    assert backend.torque is False
+
+
+def test_latch_before_connect_never_touches_backend_or_default_device(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    controller = AmazingHandController(config(tmp_path), backend)
+
+    with pytest.raises(RuntimeError, match="connected, torque-off"):
+        controller.latch_current_position()
+
+    assert backend.connect_attempts == []
+    assert backend.read_position_calls == 0
+    assert backend.writes == []
+
+
+def test_activate_latches_before_enabling_torque_for_compatibility(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    controller = AmazingHandController(config(tmp_path), backend)
+    controller.set_calibration(calibration())
+    controller.connect()
+    backend.events.clear()
+
+    controller.activate()
+
+    assert backend.events.index("read_positions") < backend.events.index("write_positions")
+    assert backend.events.index("write_positions") < backend.events.index("torque:True")
+    assert controller.state is HandState.ACTIVE
 
 
 def test_calibration_is_atomic_and_reloads(tmp_path: Path) -> None:
