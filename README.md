@@ -17,11 +17,22 @@ tasks, so this wrapper fails closed and never enables torque during `connect()`.
 ## Safety contract
 
 - `connect()` only probes IDs and loads calibration; torque remains disabled.
+- `latch_current_position()` reads all eight present positions and writes those
+same values as goals while torque is off; any failure enters `FAULT`.
 - `activate()` is explicit and requires a complete calibration.
 - Commands may carry a monotonic timestamp and stale commands are rejected.
 - Raw velocity is limited in units per second, independent of loop frequency.
 - Temperature and load thresholds trigger an emergency stop when available.
 - Any probe, observation, or write failure disables torque and enters `FAULT`.
+
+Composite robots should call `connect()`, then `latch_current_position()` on
+every torque-off component, and only then call `activate()`. For compatibility,
+`activate()` refreshes the same public latch immediately before every torque
+enable, even when a composite-level latch was already completed. The controller
+owns this operation through the public
+`AmazingHandBackend.latch_current_position()` protocol; concrete backends
+perform the read-and-identical-write operation. Callers must never reach through
+`controller.backend`.
 
 ## Install
 

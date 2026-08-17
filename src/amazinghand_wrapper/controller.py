@@ -129,12 +129,35 @@ class AmazingHandController:
             raise RuntimeError(f"cannot activate from state {self.state.value}")
         if self.mapper is None:
             raise RuntimeError("AmazingHand must be calibrated before activation")
-        self._last_raw = self.backend.read_positions()
-        self._assert_complete_ids(self._last_raw)
+        # Refresh the torque-off goal immediately before every enable. A prior
+        # composite-level latch proves ordering across devices, but the hand may
+        # still have been moved manually in the intervening interval.
+        self.latch_current_position()
         self._check_health()
         self.backend.set_torque(True)
         self._last_command_time = self.clock()
         self.state = HandState.ACTIVE
+
+    def latch_current_position(self) -> dict[int, int]:
+        """Write the measured pose back as the goal while torque remains off.
+
+        Composite robots call this public operation before enabling any actuator.
+        It uses only the :class:`AmazingHandBackend` protocol, verifies all eight
+        configured motor IDs, and fails closed on any read or write error.
+        """
+
+        if self.state is not HandState.CONNECTED:
+            raise RuntimeError(
+                "latch_current_position requires a connected, torque-off AmazingHand"
+            )
+        try:
+            current = self.backend.latch_current_position()
+            self._assert_complete_ids(current)
+            self._last_raw = dict(current)
+            return dict(current)
+        except Exception as error:
+            self.emergency_stop(f"goal latch failure: {error}")
+            raise
 
     def command_grasp(
         self, gripper_position: float, *, command_timestamp: float | None = None
